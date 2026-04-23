@@ -1,38 +1,16 @@
 contract = {
-  name = "StoreNote";
-  database_property = "notes";
+  name = "create_note";
+  db_domain = "notes";
 
-  func @{W,R} = \msg ~string.
+  func @{DB} = \msg ~string.
   {
-    count = R "notes/count", 'number: convert: add 1;
+    // "$" pode significar escopo carregado da própria transação.
+    count = DB.read "$/notes/count", 'number: convert: add 1;
+    fmt_count = string.number_format {number = count; left = 3; right = 0;};
   }::'(
-    "notes/note" + count
-    : \k. W k msg
-    :> W "notes/count" count
-    : msg
+    "$/notes/note" + fmt_count
+    : \k. DB.write k msg
+    :> DB.write ("notes/count", count)
+    :> {ok = true;}
   );
-};
-
-contract = {
-  name = "Vote";
-  func @{R, W} = \poll ~string, opt ~number. 
-  {
-    poll_key = "poll/" + poll;
-    count = R (poll_key + "/vote_count");
-  }::(
-    R poll_key != nil ?
-      '(
-        W (poll_key + "/vote" + count) {opt = opt; author = _author;}
-        :> W (poll_key + "/vote_count") (count + 1)
-      ),
-      'nil
-  );
-};
-
-transaction = {
-  contract = "Vote";
-  param = ("open/poco_no_centro", 3);
-  scope = "conf";
-  author = "c10361b75870372e794985496dc3eed8c0f121ee";
-  sign = "...";
 };

@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+keccak-hasher = "0.16.0"
 lmdb = "0.8.0"
+primitive-types = { version = "0.14.0", features = ["serde"] }
+reference-trie = "0.29.2"
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.149"
 smx = {git = "https://github.com/coinindev/smx.git"}
+tiny-keccak = { version = "2.0", features = ["keccak"] }
+trie-db = "0.31.0"
