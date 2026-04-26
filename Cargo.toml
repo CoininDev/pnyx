@@ -1,7 +1,7 @@
 [package]
 name = "pnyx"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 keccak-hasher = "0.16.0"
@@ -13,3 +13,19 @@ serde_json = "1.0.149"
 smx = {git = "https://github.com/coinindev/smx.git"}
 tiny-keccak = { version = "2.0", features = ["keccak"] }
 trie-db = "0.31.0"
+
+# Consensus & Cryptography
+tendermint = { version = "0.35", features = ["secp256k1"] }
+tendermint-rpc = { version = "0.35" }
+ed25519-dalek = "2.0"
+sha2 = "0.10"
+thiserror = "1.0"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# Additional utilities
+bytes = "1.0"
+chrono = "0.4"
+rand = "0.8"
