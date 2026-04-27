@@ -100,8 +100,12 @@ mod tests {
     #[test]
     fn test_scoped_path_parsing() {
         let test_paths = vec![
-            ("/commune/alice/laws/001", "commune/alice", "/laws/001"),
-            ("/commune/bob/budget/2024", "commune/bob", "/budget/2024"),
+            ("/commune/rj/laws/001", "commune/rj", "/laws/001"),
+            (
+                "/commune/sp/members/adbkfng98234jk",
+                "commune/sp",
+                "/members/adbkfng98234jk",
+            ),
             ("/conf/global/rules", "conf", "/global/rules"),
             ("/here/local/cache", "here", "/local/cache"),
         ];
