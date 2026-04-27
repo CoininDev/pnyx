@@ -1371,6 +1371,8 @@ dependencies = [
  "sha2 0.10.9",
  "smx",
  "tendermint",
+ "tendermint-abci",
+ "tendermint-proto",
  "tendermint-rpc",
  "thiserror 1.0.69",
  "tiny-keccak",
@@ -2017,6 +2019,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tendermint-abci"
+version = "0.35.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b524fb05f6a8afd6a332fb139f784d19e1343f115b736b0978238489baf7a89"
+dependencies = [
+ "bytes",
+ "flex-error",
+ "prost",
+ "tendermint-proto",
+ "tracing",
+]
+
+[[package]]
 name = "tendermint-config"
 version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2264,6 +2279,22 @@ name = "toml_write"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
+
+[[package]]
+name = "tracing"
+version = "0.1.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
+dependencies = [
+ "pin-project-lite",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-core"
+version = "0.1.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 
 [[package]]
 name = "trie-db"

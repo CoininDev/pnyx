@@ -6,51 +6,23 @@ use lmdb::DatabaseFlags;
 
 use crate::db::DBResource;
 
+mod abci;
 mod blockchain;
 mod db;
 mod mpt;
+mod runtime;
 
 fn main() {
     let (env, data_db, scopes_db) = init_db().expect("Failed to initialize database");
 
-    let mut amb = smx::val!(ambient);
-    amb.add_custom_resource(Rc::new(RefCell::new(DBResource::new(
-        data_db, scopes_db, env,
-    ))));
+    let app = abci::PnyxApp::new(env, data_db, scopes_db);
 
-    // Example 1: Write to confederation scope
-    println!("=== Test 1: Writing to /conf/greeting ===");
-    let _write_result = smx::eval(
-        "_ @{DB, IO} = (\"/conf/greeting\", \"hello from confederation\"): DB.write",
-        &mut amb,
-    );
-    println!("Write completed");
+    println!("Starting Pnyx ABCI server on 127.0.0.1:26658...");
+    let server = tendermint_abci::ServerBuilder::default()
+        .bind("127.0.0.1:26658", app)
+        .expect("Failed to bind ABCI server");
 
-    // Example 2: Read from confederation scope
-    println!("\n=== Test 2: Reading from /conf/greeting ===");
-    let read_result = smx::eval(
-        "_ @{DB, IO} = \"/conf/greeting\": DB.read: IO.print",
-        &mut amb,
-    );
-    println!("Read result: {:?}", read_result);
-
-    // Example 3: Write to commune scope
-    println!("\n=== Test 3: Writing to /commune/cypherpunx/laws/001 ===");
-    let _write_result2 = smx::eval(
-        "_ @{DB, IO} = (\"/commune/cypherpunx/laws/001\", \"law: universal suffrage\"): DB.write",
-        &mut amb,
-    );
-    println!("Write completed");
-
-    // Example 4: Read from commune scope
-    println!("\n=== Test 4: Reading from /commune/cypherpunx/laws/001 ===");
-    let read_result2 = smx::eval(
-        "_ @{DB, IO} = \"/commune/cypherpunx/laws/001\": DB.read: IO.print",
-        &mut amb,
-    );
-    println!("Read result: {:?}", read_result2);
-
-    println!("\n✓ Multi-scope MPT system operational!");
+    server.listen().expect("ABCI server failed");
 }
 
 fn init_db() -> lmdb::Result<(lmdb::Environment, lmdb::Database, lmdb::Database)> {
