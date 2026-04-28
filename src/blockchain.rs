@@ -22,3 +22,12 @@ pub struct Transaction {
     pub author: H256,
     pub sign: Vec<u8>,
 }
+
+/* example: {
+    contract: "notes:create",
+    scope: "/commune/cypherpunx",
+    param: smx::val!("Hello World"),
+    ...
+} 
+*/
+

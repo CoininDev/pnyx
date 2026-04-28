@@ -1,23 +1,22 @@
 use tendermint_abci::Application;
 use tendermint_proto::abci::{
-    RequestInfo, ResponseInfo, RequestCheckTx, ResponseCheckTx, ResponseCommit, RequestFinalizeBlock, ResponseFinalizeBlock
+    RequestInfo, ResponseInfo, RequestCheckTx, ResponseCheckTx,
+    ResponseCommit, RequestFinalizeBlock, ResponseFinalizeBlock,
+    ExecTxResult,
 };
-use std::sync::Arc;
-use lmdb::{Environment, Database};
+use std::sync::{Arc, Mutex};
 
-#[derive(Clone, Debug)]
+use crate::{blockchain::Transaction, runtime::SMXRuntime};
+
+#[derive(Clone)]
 pub struct PnyxApp {
-    env: Arc<Environment>,
-    data_db: Database,
-    scopes_db: Database,
+    runtime: Arc<Mutex<SMXRuntime>>,
 }
 
 impl PnyxApp {
-    pub fn new(env: Environment, data_db: Database, scopes_db: Database) -> Self {
+    pub fn new(runtime: SMXRuntime) -> Self {
         Self {
-            env: Arc::new(env),
-            data_db,
-            scopes_db,
+            runtime: Arc::new(Mutex::new(runtime)),
         }
     }
 }
@@ -33,17 +32,58 @@ impl Application for PnyxApp {
         }
     }
 
-    fn check_tx(&self, _request: RequestCheckTx) -> ResponseCheckTx {
-        ResponseCheckTx {
-            code: 0,
-            ..Default::default()
+    fn check_tx(&self, request: RequestCheckTx) -> ResponseCheckTx {
+        let tx_bytes = request.tx.as_ref();
+
+        let tx: Transaction = match serde_json::from_slice(tx_bytes) {
+            Ok(t)  => t,
+            Err(e) => {
+                return ResponseCheckTx {
+                    code: 1,
+                    log: format!("Failed to deserialize transaction: {e}"),
+                    ..Default::default()
+                };
+            }
+        };
+
+        let valid = self.runtime.lock().unwrap().validate_tx(&tx);
+
+        if valid {
+            ResponseCheckTx { code: 0, ..Default::default() }
+        } else {
+            ResponseCheckTx {
+                code: 1,
+                log: format!("Contract execution failed for '{}'", tx.contract),
+                ..Default::default()
+            }
         }
     }
 
-    fn finalize_block(&self, _request: RequestFinalizeBlock) -> ResponseFinalizeBlock {
+    fn finalize_block(&self, request: RequestFinalizeBlock) -> ResponseFinalizeBlock {
+        let mut tx_results = Vec::new();
+
+        for raw_tx in &request.txs {
+            let result = (|| -> Result<(), String> {
+                let tx: Transaction = serde_json::from_slice(raw_tx.as_ref())
+                    .map_err(|e| format!("Deserialize error: {e}"))?;
+
+                self.runtime.lock().unwrap().apply_tx(&tx)?;
+                Ok(())
+            })();
+
+            tx_results.push(match result {
+                Ok(()) => ExecTxResult { code: 0, ..Default::default() },
+                Err(e) => ExecTxResult {
+                    code: 1,
+                    log: e,
+                    ..Default::default()
+                },
+            });
+        }
+
         ResponseFinalizeBlock {
             events: vec![],
-            tx_results: vec![],
+            tx_results,
             validator_updates: vec![],
             consensus_param_updates: None,
             app_hash: vec![0u8; 32].into(),

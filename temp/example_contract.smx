@@ -1,3 +1,5 @@
+// op right 3.7 (a -> b) = a, b;
+
 contract = {
   name = "note";
   db_domain = "notes";
@@ -34,11 +36,3 @@ contract = {
     )
   ;
 }
-
-transaction = {
-  contract = "notes:create";
-  param = "Olá Mundo";
-  scope = "/commune/cypherpunx";
-  author = "70983d692f648185febe6d6fa607630ae68649f7e6fc45b94680096c06e4fadb";
-  sign = ...;
-};

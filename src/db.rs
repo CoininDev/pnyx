@@ -16,6 +16,7 @@ pub struct DBResource {
     env: lmdb::Environment,
     scope_manager: ScopeManager,
     merkle_trees: HashMap<String, ScopedMerkleTree>,
+    testing: bool
 }
 
 impl DBResource {
@@ -35,6 +36,7 @@ impl DBResource {
             env,
             scope_manager,
             merkle_trees: HashMap::new(),
+            testing: false,
         }
     }
 
@@ -117,6 +119,14 @@ impl IoObject for DBResource {
                 }
                 _ => Err(eval_error!(WrongTypes(function.join("."), PatternType::List([PatternType::String, PatternType::Any].into()), value)))
             }
+            fun if fun == &["remove"] => {
+                if let smx::value::Value::Str(path) = value {
+                    self.remove_scoped(&path)?;
+                    Ok(smx::val!())
+                } else {
+                    Err(eval_error!(WrongTypes(function.join("."), smx::value::PatternType::String, value)))
+                }
+            }
             
             cu => Err(EvalError::new(smx::error::EvalErrorType::VariableDoesNotExists(cu.join(".")))),
         }
@@ -179,5 +189,26 @@ impl DBResource {
 
         txn.commit().map_eval_error()?;
         Ok(())
+    }
+
+    /// Remove a key at a scoped path like `/commune/cypherpunx/notes/note001`
+    pub fn remove_scoped(&mut self, path: &str) -> EvalResult<()> {
+        let (scope, key) = crate::mpt::ScopeManager::parse_path(path).map_eval_error()?;
+        self.ensure_scope(&scope).map_eval_error()?;
+
+        let full_key = format!("{}::{}", scope, key);
+
+        let mut txn = self.env.begin_rw_txn().map_eval_error()?;
+        match txn.del(self.data_db, &full_key, None) {
+            Ok(()) | Err(lmdb::Error::NotFound) => {}
+            Err(e) => return Err(eval_error!(GenericError(format!("Remove error: {e}")))),
+        }
+        txn.commit().map_eval_error()?;
+        Ok(())
+    }
+
+    /// Wrap this DBResource in Arc<Mutex<>> for use as an SMX custom resource.
+    pub fn into_resource(self) -> std::sync::Arc<std::sync::Mutex<dyn smx::value::IoObject + Send>> {
+        std::sync::Arc::new(std::sync::Mutex::new(self))
     }
 }

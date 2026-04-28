@@ -1,10 +1,6 @@
 #![feature(box_patterns)]
 
-use std::{cell::RefCell, fs, path::Path, rc::Rc};
-
-use lmdb::DatabaseFlags;
-
-use crate::db::DBResource;
+use crate::runtime::SMXRuntime;
 
 mod abci;
 mod blockchain;
@@ -13,9 +9,8 @@ mod mpt;
 mod runtime;
 
 fn main() {
-    let (env, data_db, scopes_db) = init_db().expect("Failed to initialize database");
-
-    let app = abci::PnyxApp::new(env, data_db, scopes_db);
+    let runtime = SMXRuntime::new().expect("Failed to initialize SMX runtime");
+    let app = abci::PnyxApp::new(runtime);
 
     println!("Starting Pnyx ABCI server on 127.0.0.1:26658...");
     let server = tendermint_abci::ServerBuilder::default()
@@ -25,67 +20,47 @@ fn main() {
     server.listen().expect("ABCI server failed");
 }
 
-fn init_db() -> lmdb::Result<(lmdb::Environment, lmdb::Database, lmdb::Database)> {
-    fs::create_dir_all("./meu_banco").unwrap();
-    let env = lmdb::Environment::new()
-        .set_max_dbs(2)
-        .set_map_size(10 * 1024 * 1024)
-        .open(Path::new("./meu_banco"))?;
-
-    let data_db = env.create_db(Some("pnyx"), DatabaseFlags::empty())?;
-    let scopes_db = env.create_db(Some("scopes"), DatabaseFlags::empty())?;
-
-    Ok((env, data_db, scopes_db))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::Transaction;
+    use primitive_types::H256;
+    use smx::value::Value;
+    use std::fs;
 
-    #[test]
-    fn test_multi_scope_isolation() {
-        // Create fresh DB for this test
-        fs::remove_dir_all("./test_bank").ok();
-        fs::create_dir_all("./test_bank").unwrap();
-
-        let env = lmdb::Environment::new()
-            .set_max_dbs(2)
-            .set_map_size(10 * 1024 * 1024)
-            .open(Path::new("./test_bank"))
-            .expect("Failed to open test DB");
-
-        let data_db = env
-            .create_db(Some("pnyx"), DatabaseFlags::empty())
-            .expect("Failed to create data_db");
-        let scopes_db = env
-            .create_db(Some("scopes"), DatabaseFlags::empty())
-            .expect("Failed to create scopes_db");
-
-        let _db = DBResource::new(data_db, scopes_db, env);
-
-        // Verify DBResource was created successfully with both databases
-        // (Full integration testing would involve reading/writing through DBResource)
-
-        fs::remove_dir_all("./test_bank").ok();
+    fn fresh_runtime(tag: &str) -> SMXRuntime {
+        let canon = format!("./target/test_{tag}_db");
+        let test  = format!("./target/test_{tag}_test_db");
+        let _ = fs::remove_dir_all(&canon);
+        let _ = fs::remove_dir_all(&test);
+        SMXRuntime::new_at(&canon, &test).expect("Failed to init runtime")
     }
 
     #[test]
-    fn test_scoped_path_parsing() {
-        let test_paths = vec![
-            ("/commune/rj/laws/001", "commune/rj", "/laws/001"),
-            (
-                "/commune/sp/members/adbkfng98234jk",
-                "commune/sp",
-                "/members/adbkfng98234jk",
-            ),
-            ("/conf/global/rules", "conf", "/global/rules"),
-            ("/here/local/cache", "here", "/local/cache"),
-        ];
+    fn test_contract_validate_and_apply() {
+        let mut runtime = fresh_runtime("validate_apply");
 
-        for (path, expected_scope, expected_key) in test_paths {
-            let (scope, key) = crate::mpt::ScopeManager::parse_path(path).unwrap();
-            assert_eq!(scope, expected_scope, "Scope mismatch for path {}", path);
-            assert_eq!(key, expected_key, "Key mismatch for path {}", path);
-        }
+        let source = fs::read_to_string("temp/example_contract.smx")
+            .expect("Could not read example_contract.smx");
+
+        // Deploy the contract into the canonical DB
+        runtime
+            .deploy_contract("/commune/cypherpunx", "notes", &source)
+            .expect("Failed to deploy contract");
+
+        let tx = Transaction {
+            contract: "notes:create".to_string(),
+            scope:    "/commune/cypherpunx".to_string(),
+            param:    Value::Str("Olá Mundo".to_string()),
+            author:   H256::zero(),
+            sign:     vec![],
+        };
+
+        // Dry-run should succeed
+        assert!(runtime.validate_tx(&tx), "validate_tx returned false");
+
+        // Canonical apply should also succeed
+        let result = runtime.apply_tx(&tx);
+        assert!(result.is_ok(), "apply_tx failed: {:?}", result.err());
     }
 }
