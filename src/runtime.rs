@@ -28,64 +28,45 @@ fn make_ambient(db: DBResource) -> smx::value::Ambient {
 // SMXRuntime
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Two DB-backed ambients:
-///
-/// - `canon_amb` — canonical state DB, committed on `FinalizeBlock`.
-/// - `test_amb`  — isolated test DB, used for dry-runs during `CheckTx`.
-///
-/// Contract *code* is always read from the canonical DB (it's published state).
-/// Contract *writes* during `validate_tx` hit only `test_amb`, so they are
-/// never committed.
 pub struct SMXRuntime {
-    canon_amb: smx::value::Ambient,
-    test_amb:  smx::value::Ambient,
+    pub amb: smx::value::Ambient,
 }
 
 impl SMXRuntime {
-    /// Standard constructor — uses `"db"` and `"test_db"` directories.
     pub fn new() -> Result<Self, String> {
-        Self::new_at("db", "test_db")
+        Self::new_at("db")
     }
 
     /// Constructor with explicit directory paths (useful in tests).
-    pub fn new_at(canon_path: &str, test_path: &str) -> Result<Self, String> {
-        let (tenv, tdb1, tdb2) = init_lmdb(test_path).map_err(|e| e.to_string())?;
-        let (env,  db1,  db2)  = init_lmdb(canon_path).map_err(|e| e.to_string())?;
+    pub fn new_at(path: &str) -> Result<Self, String> {
+        let (env,  db1,  db2)  = init_lmdb(path).map_err(|e| e.to_string())?;
         Ok(Self {
-            canon_amb: make_ambient(DBResource::new(db1,  db2,  env)),
-            test_amb:  make_ambient(DBResource::new(tdb1, tdb2, tenv)),
+            amb: make_ambient(DBResource::new(db1, db2, env)),
         })
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    /// `CheckTx` — dry-run against the test DB.
-    /// Contract code is read from the canonical DB; state writes hit only
-    /// the test DB and are not persisted.
+
     pub fn validate_tx(&mut self, tx: &Transaction) -> bool {
         self.run_tx(tx, false).is_ok()
     }
-
-    /// `FinalizeBlock` — execute and commit against the canonical DB.
+ 
     pub fn apply_tx(&mut self, tx: &Transaction) -> Result<smx::value::Value, String> {
         self.run_tx(tx, true)
     }
 
-    /// Store a contract's SMX source in the canonical DB.
     /// Path: `"{scope}/contracts/{name}"`.
     pub fn deploy_contract(&mut self, scope: &str, name: &str, source: &str) -> Result<(), String> {
         let path = format!("{}/contracts/{}", scope.trim_end_matches('/'), name);
-        write_to_amb(&mut self.canon_amb, &path, source)
+        write_to_amb(&mut self.amb, &path, source)
     }
 
     // ── Core pipeline ─────────────────────────────────────────────────────────
 
-    /// `canonical = true`  → use canon_amb (writes committed permanently).
-    /// `canonical = false` → use test_amb  (writes isolated, never committed).
-    ///
-    /// Contract *code* is always fetched from the canonical DB regardless of
-    /// the execution mode.
-    fn run_tx(&mut self, tx: &Transaction, canonical: bool) -> Result<smx::value::Value, String> {
+    /// `testing = false`  → commit
+    /// `testing = true`   → abort
+    fn run_tx(&mut self, tx: &Transaction, testing: bool) -> Result<smx::value::Value, String> {
         // 1. Parse "notes:create" → ("notes", "create")
         let (contract_name, func_name) = parse_contract_field(&tx.contract)?;
 
@@ -96,24 +77,26 @@ impl SMXRuntime {
             contract_name
         );
 
-        // 3. Read contract source from the CANONICAL DB (always)
+        // 3. Read contract source from db
         //    Cloning the ambient is cheap (Arc clone); the underlying LMDB
         //    connection is shared, so reads see the real committed state.
         let source = {
-            let mut reader = self.canon_amb.clone();
+            let mut reader = self.amb.clone();
             read_from_amb(&mut reader, &contract_path)
                 .map_err(|e| format!("Failed to load contract '{}': {}", contract_path, e))?
         };
 
-        // 4. Choose execution ambient (canon or test)
-        let mut exec_amb = if canonical {
-            self.canon_amb.clone()
-        } else {
-            self.test_amb.clone()
-        };
+        // 4. Choose execution testing
+        with_db(&mut self.amb, |db, _tx| {
+            if let Some(db_t) = (db as &mut dyn std::any::Any).downcast_mut::<DBResource>() {
+                if testing {db_t.testing = true;}
+                else {db_t.testing = false;}
+            } 
+            Ok(())
+        })?;
 
         // 5. Evaluate the contract source in the execution ambient
-        let contract_amb = eval_contract_source(&source, &exec_amb)
+        let contract_amb = eval_contract_source(&source, &self.amb)
             .map_err(|e| format!("Contract eval error: {}", e))?;
 
         // 6. Extract the named function from contract.funcs
@@ -121,13 +104,13 @@ impl SMXRuntime {
             .map_err(|e| format!("Function lookup error: {}", e))?;
 
         // 7. Inject `tx_scope` so SMX code can build absolute DB paths
-        exec_amb.vars.insert(
+        self.amb.vars.insert(
             "tx_scope".to_string(),
-            smx::value::Value::Str(tx.scope.clone()),
+            smx::val!(tx.scope.clone()),
         );
 
         // 8. Apply the function to tx.param
-        smx::eval::apply(func, tx.param.clone(), &mut exec_amb)
+        smx::eval::apply(func, tx.param.clone(), &mut self.amb)
             .map_err(|e| format!("Contract execution error: {}", e))
     }
 }
@@ -137,7 +120,7 @@ impl SMXRuntime {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Call `f` with the first DB custom resource found in `amb`.
-fn with_db<F, R>(amb: &mut smx::value::Ambient, f: F) -> Result<R, String>
+pub fn with_db<F, R>(amb: &mut smx::value::Ambient, f: F) -> Result<R, String>
 where
     F: FnOnce(&mut dyn smx::value::IoObject, &mut smx::value::Ambient) -> Result<R, String>,
 {
@@ -169,12 +152,15 @@ fn read_from_amb(amb: &mut smx::value::Ambient, path: &str) -> Result<String, St
 }
 
 fn write_to_amb(amb: &mut smx::value::Ambient, path: &str, value: &str) -> Result<(), String> {
+    // smx::eval(format!("_ @{{DB}} = \"{path}\",\"{value}\":DB.write").as_str(), amb)
+    //     .map(|_| ())
+
     with_db(amb, |db, amb| {
         db.redirect(
             vec!["write".to_string()],
             smx::value::Value::Pair(
-                Box::new(smx::value::Value::Str(path.to_string())),
-                Box::new(smx::value::Value::Str(value.to_string())),
+                Box::new(smx::val!(path.to_string())),
+                Box::new(smx::val!(value.to_string())),
             ),
             amb,
         )

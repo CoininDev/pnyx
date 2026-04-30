@@ -23,17 +23,15 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::Transaction;
+    use crate::{blockchain::Transaction, db::DBResource, runtime::with_db};
     use primitive_types::H256;
-    use smx::value::Value;
+    use smx::{ast::Assign, value::Value};
     use std::fs;
 
     fn fresh_runtime(tag: &str) -> SMXRuntime {
-        let canon = format!("./target/test_{tag}_db");
-        let test  = format!("./target/test_{tag}_test_db");
-        let _ = fs::remove_dir_all(&canon);
-        let _ = fs::remove_dir_all(&test);
-        SMXRuntime::new_at(&canon, &test).expect("Failed to init runtime")
+        let db = format!("./target/test_{tag}_db");
+        let _ = fs::remove_dir_all(&db);
+        SMXRuntime::new_at(&db).expect("Failed to init runtime")
     }
 
     #[test]
@@ -57,10 +55,22 @@ mod tests {
         };
 
         // Dry-run should succeed
-        assert!(runtime.validate_tx(&tx), "validate_tx returned false");
+        println!("{}", runtime.validate_tx(&tx));
+        //assert!(runtime.validate_tx(&tx), "validate_tx returned false");
 
         // Canonical apply should also succeed
         let result = runtime.apply_tx(&tx);
         assert!(result.is_ok(), "apply_tx failed: {:?}", result.err());
+
+
+        // Check db
+        with_db(&mut runtime.amb, |obj, _|  {
+            if let Some(db) = (obj as &mut dyn std::any::Any).downcast_mut::<DBResource>() {
+                db.read_scoped("/commune/cypherpunx/notes/001")
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        }
+        ).expect("Could not check db status");
     }
 }

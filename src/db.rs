@@ -16,7 +16,7 @@ pub struct DBResource {
     env: lmdb::Environment,
     scope_manager: ScopeManager,
     merkle_trees: HashMap<String, ScopedMerkleTree>,
-    testing: bool
+    pub testing: bool
 }
 
 impl DBResource {
@@ -135,7 +135,7 @@ impl IoObject for DBResource {
 
 impl DBResource {
     /// Read from a scoped path like `/commune/cypherpunx/laws/042`
-    fn read_scoped(&mut self, path: &str) -> EvalResult<Value> {
+    pub fn read_scoped(&mut self, path: &str) -> EvalResult<Value> {
         let (scope, key) = crate::mpt::ScopeManager::parse_path(path)
             .map_err(|e| eval_error!(VariableDoesNotExists(format!("Invalid path: {}", e))))?;
 
@@ -153,7 +153,7 @@ impl DBResource {
     }
 
     /// Write to a scoped path like `/commune/cypherpunx/laws/042`
-    fn write_scoped(&mut self, path: &str, value: &str) -> EvalResult<()> {
+    pub fn write_scoped(&mut self, path: &str, value: &str) -> EvalResult<()> {
         let (scope, key) = crate::mpt::ScopeManager::parse_path(path).map_eval_error()?;
         self.ensure_scope(&scope).map_eval_error()?;
 
@@ -186,8 +186,13 @@ impl DBResource {
                 txn.put(self.scopes_db, &meta_key, &json, WriteFlags::empty()).map_eval_error()?;
             }
         }
-
-        txn.commit().map_eval_error()?;
+        
+        if !self.testing {
+            txn.commit().map_eval_error()?;
+        } else {
+            txn.abort();
+        }
+        
         Ok(())
     }
 
