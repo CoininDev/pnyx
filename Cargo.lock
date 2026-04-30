@@ -1871,6 +1871,7 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 [[package]]
 name = "smx"
 version = "0.1.0"
+source = "git+https://github.com/coinindev/smx.git#98ad541d255e1408617404484e193fa4e4bbe7b0"
 dependencies = [
  "im",
  "num-bigint",
